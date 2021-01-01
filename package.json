@@ -1,0 +1,24 @@
+{
+  "name": "11ty-dither",
+  "version": "1.0.0",
+  "description": "",
+  "main": ".eleventy.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "npx eleventy --serve",
+    "production": "NODE_ENV=production npx eleventy"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "canvas": "^2.6.1",
+    "dither-me-this": "^0.0.3",
+    "file-type": "^16.1.0",
+    "fs-extra": "^9.0.1",
+    "jsdom": "^16.4.0",
+    "node-fetch": "^2.6.1",
+    "path": "^0.12.7",
+    "sharp": "^0.27.0",
+    "shorthash": "^0.0.2"
+  }
+}
