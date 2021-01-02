@@ -1,15 +1,12 @@
 const dither = require("dither-me-this")
-const fs = require('fs-extra')
 const path = require('path')
 const { JSDOM } = require('jsdom')
 const fetch = require('node-fetch')
 const sh = require('shorthash')
-const fileType = require('file-type')
-const { createCanvas, createImageData, Image } = require('canvas')
 const sharp = require('sharp')
 
 
-const imageTypes = ['png', 'webp']
+const imageTypes = ['png', 'webp', 'avif']
 
 
 const defaultConfig = {
@@ -43,7 +40,7 @@ const startProcessingImages = async (content, outputPath) => {
         const images = [...dom.window.document.querySelectorAll('img')]
 
         if (images.length > 0) {
-            await Promise.all(images.map(img => processImage(img, globalOptions)))
+            await Promise.all(images.map(imgElement => processImage(imgElement, globalOptions)))
             content = dom.serialize()
             return content
         } else {
@@ -56,16 +53,15 @@ const startProcessingImages = async (content, outputPath) => {
 }
 
 
-const processImage = async (img, options) => {
+const processImage = async (imgElement, options) => {
 
     let config = { ...defaultConfig, ...options }
     let ditheringOptions = { ...defaultDitheringOptions, ...options }
-    let imgPath = img.getAttribute('src')
+    let imgPath = imgElement.getAttribute('src')
 
     let filename = fileNameFromPath(imgPath)
     const hash = sh.unique(imgPath)
     let srcsets = []
-
 
 
     await getImage(imgPath, config).then(async (imgBuffer) => {
@@ -76,30 +72,43 @@ const processImage = async (img, options) => {
         })).then(async (resizedImages) => {
             const ditheredImages = await ResizedImagesToDither(resizedImages, ditheringOptions)
             return ditheredImages
-        }).then(ditheredImages => {
+        }).then(async (ditheredImages) => {
 
-            ditheredImages.forEach(image => {
 
-                if (imageTypes.includes('png')) {
-                    let type = 'png'
-                    const hashedFilename = !path.extname(filename) ? `${hash}-${image.width}.${type}` : `${hash}-${image.width}-${filename}`
-                    let outputFilePath = path.join(config.outputDirectory, config.imageFolder, hashedFilename)
-                    let srcPath = path.join(config.imageFolder, hashedFilename)
-                    sharp(image.buffer).png().toFile(outputFilePath)
+
+            const allDone = await Promise.all(ditheredImages.map(async (image) => {
+
+                return await Promise.all(imageTypes.map(async (type) => {
+                    const hashedFilename = createHashedFilename(hash, image.width, type)
+                    const outputFilePath = path.join(config.outputDirectory, config.imageFolder, hashedFilename)
+                    const srcPath = path.join(config.imageFolder, hashedFilename)
                     srcsets.push({ path: srcPath, size: image.width, type })
-                }
+                    return await imageToFile(image.buffer, type, outputFilePath)
+                }))
 
-                // if (imageTypes.includes('webp')) {
-                //     let base64Image = resizedImage.split(';base64,').pop()
-                //     fs.outputFile(outputFilePath, base64Image, { encoding: 'base64' })
-                // }
+            })).then(() => {
+                createPictureElement(srcsets, imgElement)
             })
 
 
-            createPictureElement(srcsets, img)
+
         })
 
     })
+}
+
+const imageToFile = async (buffer, type, path) => {
+    if (type === 'webp') {
+        return sharp(buffer).webp({ lossless: true }).toFile(path)
+    } else if (type === 'avif') {
+        return sharp(buffer).avif({ lossless: true }).toFile(path)
+    } else {
+        return sharp(buffer).png().toFile(path)
+    }
+}
+
+const createHashedFilename = (hash, size, type) => {
+    return `${hash}-${size}.${type}`
 }
 
 
@@ -159,18 +168,30 @@ const createPictureElement = (srcsets, element) => {
 
     const dom = new JSDOM()
 
+    const imageTypeOrder = ['avif', 'webp', 'png']
+
     let srcsetsCorrectPath = srcsets.map(srcset => ({ path: srcset.path, size: srcset.size, type: srcset.type }))
+    let sortedByImageType = srcsetsCorrectPath.sort((a, b) => {
+        return imageTypeOrder.indexOf(a.type) - imageTypeOrder.indexOf(b.type)
+    })
+
+    let addedLastOfTypeFlag = sortedByImageType.map((set, i) => {
+        const lastOfType = !sortedByImageType[i + 1] || sortedByImageType[i + 1].type !== set.type
+        return { ...set, lastOfType }
+    })
 
     let sourceElements = []
 
-    srcsetsCorrectPath.forEach((srcset, i) => {
+    addedLastOfTypeFlag.forEach((source, i) => {
         let mediaString = ''
 
-        if (i < srcsetsCorrectPath.length - 1) {
-            mediaString = `media="(min-width: ${srcset.size}px)"`
+        if (!source.lastOfType) {
+            mediaString = `media="(min-width: ${source.size}px)"`
         }
 
-        let sourceString = `<source srcset="${srcset.path}" ${mediaString}>`
+        let typeString = `type="image/${source.type}"`
+
+        let sourceString = `<source srcset="${source.path}" ${mediaString} ${typeString}>`
 
         sourceElements.push(sourceString)
 
@@ -178,7 +199,10 @@ const createPictureElement = (srcsets, element) => {
 
     const srcsetString = sourceElements.join('')
 
-    const fallbackSrc = srcsetsCorrectPath[0].path
+    // The fallback should be the largest PNG.
+    const largestPNG = addedLastOfTypeFlag.filter(set => set.type === 'png')[0]
+
+    const fallbackSrc = largestPNG.path
 
     let picture = dom.window.document.createElement('picture')
     picture.innerHTML = srcsetString
