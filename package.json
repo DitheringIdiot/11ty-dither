@@ -8,6 +8,10 @@
     "start": "npx eleventy --serve",
     "production": "NODE_ENV=production npx eleventy"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ShadowfaxRodeo/11ty-dither"
+  },
   "author": "",
   "license": "ISC",
   "dependencies": {
