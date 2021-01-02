@@ -1,6 +1,6 @@
 {
   "name": "11ty-dither",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "",
   "main": ".eleventy.js",
   "scripts": {
