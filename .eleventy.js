@@ -9,92 +9,150 @@ const sharp = require('sharp')
 const imageTypes = ['png', 'webp', 'avif']
 
 
-const defaultConfig = {
+const defaultOptions = {
     inputDirectory: './src',
-    imageFolder: '/images',
     outputDirectory: './_site',
-    verbose: false,
-    attribute: 'src',
-    sizes: [1800, 1024, 720, 600]
+    imageFolder: '/images',
+    sizes: [1800, 1024, 720, 600],
+    formats: ['png', 'webp', 'avif'],
+    ditheringOptions: {
+        palette: ["#000", '#FFF']
+    }
 }
-
-const defaultDitheringOptions = {
-    palette: ["#000", '#FFF']
-}
-
-let globalOptions = {}
 
 const pluginTypes = {
-    ditherAllImages (eleventyConfig, options) {
-        globalOptions = { ...defaultConfig, ...defaultDitheringOptions, ...options }
-        eleventyConfig.addTransform('dither', startProcessingImages)
-    },
-    ditherShortcodes (eleventyConfig, options) {
-        eleventyConfig.addShortcode('dither', processImage)
+    ditherShortcodes (eleventyConfig, globalOptions) {
+        eleventyConfig.addShortcode('dither', (src, alt, caption, options) => {
+            const htmlString = processImageFromShortcode(src, alt, caption, options, globalOptions)
+            return htmlString
+        })
     }
 }
 
-const startProcessingImages = async (content, outputPath) => {
-    if (outputPath.endsWith('.html')) {
-        const dom = new JSDOM(content)
-        const images = [...dom.window.document.querySelectorAll('img')]
+// const startProcessingImages = async (content, outputPath) => { // TODO - THIS NEEDS A CLEARER NAME
+//     if (outputPath.endsWith('.html')) {
+//         const dom = new JSDOM(content)
+//         const images = [...dom.window.document.querySelectorAll('img')]
 
-        if (images.length > 0) {
-            await Promise.all(images.map(imgElement => processImage(imgElement, globalOptions)))
-            content = dom.serialize()
-            return content
-        } else {
-            return content
-        }
+//         if (images.length > 0) {
+//             await Promise.all(images.map(imgElement => processImage(imgElement, globalOptions)))
+//             content = dom.serialize()
+//             return content
+//         } else {
+//             return content
+//         }
 
-    } else {
-        return content
+//     } else {
+//         return content
+//     }
+// }
+
+const processImageFromShortcode = (src, alt, caption, options, globalOptions) => {
+    const ditherImageObject = shortcodeToDitherObject(src, alt, caption, options)
+    return processImage(ditherImageObject, globalOptions)
+}
+
+const shortcodeToDitherObject = (src, alt, caption, options) => {
+
+    const ditherImageObject = {
+        src: src,
+        alt: alt || "",
+        caption: caption || "",
+        options: options || "default"
     }
+
+    return ditherImageObject
+}
+
+// const imgElementToDitherObject = (imgElement, options) => {
+
+
+//     let config = { ...defaultOptions, ...options }
+//     let ditheringOptions = { ...defaultDitheringOptions, ...options }
+
+//     const ditherImageObject = {
+//         src: imgElement.getAttribute('src') || null,
+//         alt: element.getAttribute('alt') || null,
+//         caption: null,
+//         options: {} // TODO - make this get the default options!?
+
+//     }
+// }
+
+
+const getImageOptions = (globalOptions, imageSpecificOptions) => {
+    const presetString = typeof imageSpecificOptions.options === 'string' ? imageSpecificOptions.options : null
+
+    const presets = globalOptions.presets || {}
+    const presetOptions = presetString && presets[presetString] ? presets[presetString] : {}
+
+    const presetDitheringOptions = presetOptions.ditheringOptions || {}
+
+    const userDefaultOptions = globalOptions.default || {}
+    const userDefaultDitheringOptions = userDefaultOptions.ditheringOptions || {}
+
+    const imageSpecificDitheringOptions = typeof imageSpecificOptions.options !== 'string' ? imageSpecificOptions.options.ditheringOptions : {}
+
+    const ditheringOptions = {
+        ...defaultOptions.ditheringOptions,
+        ...userDefaultDitheringOptions,
+        ...presetDitheringOptions,
+        ...imageSpecificDitheringOptions
+    }
+
+
+    const options = {
+        ...defaultOptions,
+        ...userDefaultOptions,
+        ...presetOptions,
+        ditheringOptions: ditheringOptions
+    }
+
+    console.log(options)
+
+
+    return options
 }
 
 
-const processImage = async (imgElement, options) => {
 
-    let config = { ...defaultConfig, ...options }
-    let ditheringOptions = { ...defaultDitheringOptions, ...options }
-    let imgPath = imgElement.getAttribute('src')
+const processImage = (ditherImageObject, globalOptions) => {
 
-    let filename = fileNameFromPath(imgPath)
-    const hash = sh.unique(imgPath)
-    let srcsets = []
+    const options = getImageOptions(globalOptions, ditherImageObject)
 
 
-    await getImage(imgPath, config).then(async (imgBuffer) => {
+    // let filename = fileNameFromPath(ditherImageObject.src)
+    const hash = sh.unique(ditherImageObject.src)
 
+    const srcsets = options.sizes.map(size => {
+        return options.formats.map(format => {
+            const hashedFilename = createHashedFilename(hash, size, format)
+            return {
+                format,
+                size,
+                hashedFilename: hashedFilename,
+                outputFilePath: path.join(options.outputDirectory, options.imageFolder, hashedFilename),
+                src: path.join(options.imageFolder, hashedFilename),
+            }
+        })
+    }).flat()
 
-        await Promise.all(options.sizes.map(size => {
+    // This function gets the images, resizes them, dithres them, and then saves them in the correct formats 
+    getImage(ditherImageObject.src, options).then(async (imgBuffer) => {
+        return await Promise.all(options.sizes.map(size => {
             return resizeImage(imgBuffer, size)
         })).then(async (resizedImages) => {
-            const ditheredImages = await ResizedImagesToDither(resizedImages, ditheringOptions)
-            return ditheredImages
+            return await ResizedImagesToDither(resizedImages, options.ditheringOptions)
         }).then(async (ditheredImages) => {
-
-
-
-            const allDone = await Promise.all(ditheredImages.map(async (image) => {
-
-                return await Promise.all(imageTypes.map(async (type) => {
-                    const hashedFilename = createHashedFilename(hash, image.width, type)
-                    const outputFilePath = path.join(config.outputDirectory, config.imageFolder, hashedFilename)
-                    const srcPath = path.join(config.imageFolder, hashedFilename)
-                    srcsets.push({ path: srcPath, size: image.width, type })
-                    return await imageToFile(image.buffer, type, outputFilePath)
-                }))
-
-            })).then(() => {
-                createPictureElement(srcsets, imgElement)
-            })
-
-
-
+            return await Promise.all(srcsets.map(async (srcset) => {
+                const image = ditheredImages.find(image => image.width === srcset.size)
+                return imageToFile(image.buffer, srcset.format, srcset.outputFilePath)
+            }))
         })
-
     })
+
+    return createPictureElement(srcsets, ditherImageObject)
+
 }
 
 const imageToFile = async (buffer, type, path) => {
@@ -113,9 +171,9 @@ const createHashedFilename = (hash, size, type) => {
 
 
 const ResizedImagesToDither = async (resizedImages, ditheringOptions) => {
+    console.log(ditheringOptions)
     return Promise.all(resizedImages.map(async (image) => {
-        const options = { ...defaultDitheringOptions, ...ditheringOptions }
-        const ditheredBuffer = await dither(image.data, options)
+        const ditheredBuffer = await dither(image.data, ditheringOptions)
         return {
             buffer: ditheredBuffer,
             width: image.info.width,
@@ -134,12 +192,12 @@ const resizeImage = async (imageBuffer, size) => {
     return resizedImage
 }
 
-const getImage = async (path, config) => {
+const getImage = async (path, options) => {
 
     if (imageIsExternal(path)) {
         return await downloadImage(path)
     } else {
-        return await getImageFromFile(path, config)
+        return await getImageFromFile(path, options)
     }
 }
 
@@ -159,39 +217,38 @@ const downloadImage = async (path) => {
     }
 }
 
-const getImageFromFile = async (path, config) => {
-    return await sharp(`${config.inputDirectory}/${path}`).toBuffer()
+const getImageFromFile = async (path, options) => {
+    return await sharp(`${options.inputDirectory}/${path}`).toBuffer()
 }
 
 
-const createPictureElement = (srcsets, element) => {
+const createPictureElement = (srcset, options) => {
 
-    const dom = new JSDOM()
 
     const imageTypeOrder = ['avif', 'webp', 'png']
 
-    let srcsetsCorrectPath = srcsets.map(srcset => ({ path: srcset.path, size: srcset.size, type: srcset.type }))
-    let sortedByImageType = srcsetsCorrectPath.sort((a, b) => {
-        return imageTypeOrder.indexOf(a.type) - imageTypeOrder.indexOf(b.type)
+
+    let sortedByImageType = srcset.sort((a, b) => {
+        return imageTypeOrder.indexOf(a.format) - imageTypeOrder.indexOf(b.format)
     })
 
-    let addedLastOfTypeFlag = sortedByImageType.map((set, i) => {
-        const lastOfType = !sortedByImageType[i + 1] || sortedByImageType[i + 1].type !== set.type
-        return { ...set, lastOfType }
+    let addedLastOfTypeFlag = sortedByImageType.map((source, i) => {
+        const lastOfType = !sortedByImageType[i + 1] || sortedByImageType[i + 1].format !== source.format
+        return { ...source, lastOfType }
     })
 
     let sourceElements = []
 
-    addedLastOfTypeFlag.forEach((source, i) => {
+    addedLastOfTypeFlag.forEach((source) => {
         let mediaString = ''
 
         if (!source.lastOfType) {
             mediaString = `media="(min-width: ${source.size}px)"`
         }
 
-        let typeString = `type="image/${source.type}"`
+        let typeString = `type="image/${source.format}"`
 
-        let sourceString = `<source srcset="${source.path}" ${mediaString} ${typeString}>`
+        let sourceString = `<source srcset="${source.src}" ${mediaString} ${typeString}>`
 
         sourceElements.push(sourceString)
 
@@ -200,17 +257,19 @@ const createPictureElement = (srcsets, element) => {
     const srcsetString = sourceElements.join('')
 
     // The fallback should be the largest PNG.
-    const largestPNG = addedLastOfTypeFlag.filter(set => set.type === 'png')[0]
+    const largestPNG = addedLastOfTypeFlag.filter(set => set.format === 'png')[0]
 
-    const fallbackSrc = largestPNG.path
+    const fallbackSrc = largestPNG.src
 
-    let picture = dom.window.document.createElement('picture')
-    picture.innerHTML = srcsetString
-    const newImgElement = element.cloneNode(true)
-    newImgElement.setAttribute('src', fallbackSrc)
-    picture.appendChild(newImgElement)
-
-    element.replaceWith(picture)
+    const picture = `<figure>
+                    <picture>
+                        ${srcsetString}
+                        <img src="${fallbackSrc}" alt="${options.alt}">
+                    </picture>
+                    <figcaption>
+                        ${options.caption}
+                    </figcaption>
+                    </figure>`.replace(/\s+/g, ' ').replace(/[\n\r]/g, '')
 
     return picture
 
@@ -228,6 +287,39 @@ const imageIsExternal = (path) => {
     // return regexp.test(path)
     return path.includes('https://') || path.includes('http://')
 }
+
+/*
+
+ImageToDither {
+
+    src:string
+    alt:string
+    caption:string
+
+    options:{
+        sizes:[number]
+        formats:[( 'png' | 'webp' | 'avif' )]
+        ditheringOptions: DitheringOptions
+    } | string
+}
+
+DitheringOptions {
+    dither: 'errorDiffusion', // ordered, random, errorDiffusion, none
+    random: 'blackAndWhite', // blackAndWhite, Color
+    ordered: {
+        type: 'bayer',
+        matrix: [4, 4]
+    },
+    errorDiffusion: {
+        type: 'Sierra2-4A'
+    },
+    palette: 'default', // color[], 'palette name'
+    threshold: 50,
+    serpentine: false,
+    numberOfColors: 10
+}
+ */
+
 
 
 module.exports = pluginTypes
