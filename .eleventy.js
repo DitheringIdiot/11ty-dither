@@ -4,6 +4,7 @@ const { JSDOM } = require('jsdom')
 const fetch = require('node-fetch')
 const sh = require('shorthash')
 const sharp = require('sharp')
+const fs = require('fs')
 
 
 const imageTypes = ['png', 'webp', 'avif']
@@ -49,6 +50,7 @@ const pluginTypes = {
 
 const processImageFromShortcode = (src, alt, caption, options, globalOptions) => {
     const ditherImageObject = shortcodeToDitherObject(src, alt, caption, options)
+    console.log(globalOptions)
     return processImage(ditherImageObject, globalOptions)
 }
 
@@ -81,9 +83,13 @@ const shortcodeToDitherObject = (src, alt, caption, options) => {
 
 
 const getImageOptions = (globalOptions, imageSpecificOptions) => {
+
+    console.log(globalOptions)
+
     const presetString = typeof imageSpecificOptions.options === 'string' ? imageSpecificOptions.options : null
 
     const presets = globalOptions.presets || {}
+
     const presetOptions = presetString && presets[presetString] ? presets[presetString] : {}
 
     const presetDitheringOptions = presetOptions.ditheringOptions || {}
@@ -101,15 +107,16 @@ const getImageOptions = (globalOptions, imageSpecificOptions) => {
     }
 
 
+
     const options = {
         ...defaultOptions,
         ...userDefaultOptions,
         ...presetOptions,
+        ...imageSpecificOptions,
         ditheringOptions: ditheringOptions
     }
 
     console.log(options)
-
 
     return options
 }
@@ -132,6 +139,7 @@ const processImage = (ditherImageObject, globalOptions) => {
                 size,
                 hashedFilename: hashedFilename,
                 outputFilePath: path.join(options.outputDirectory, options.imageFolder, hashedFilename),
+                imageFolder: options.outputDirectory + options.imageFolder,
                 src: path.join(options.imageFolder, hashedFilename),
             }
         })
@@ -146,7 +154,7 @@ const processImage = (ditherImageObject, globalOptions) => {
         }).then(async (ditheredImages) => {
             return await Promise.all(srcsets.map(async (srcset) => {
                 const image = ditheredImages.find(image => image.width === srcset.size)
-                return imageToFile(image.buffer, srcset.format, srcset.outputFilePath)
+                return imageToFile(image.buffer, srcset.format, srcset.outputFilePath, srcset.imageFolder)
             }))
         })
     })
@@ -155,7 +163,17 @@ const processImage = (ditherImageObject, globalOptions) => {
 
 }
 
-const imageToFile = async (buffer, type, path) => {
+const imageToFile = async (buffer, type, path, imageFolder) => {
+
+
+
+    if (!fs.existsSync(imageFolder)) {
+        fs.mkdir(imageFolder, { recursive: true }, (err) => {
+            if (err) throw err
+        })
+    }
+
+
     if (type === 'webp') {
         return sharp(buffer).webp({ lossless: true }).toFile(path)
     } else if (type === 'avif') {
