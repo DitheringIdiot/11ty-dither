@@ -23,7 +23,7 @@ const defaultOptions = {
 
 const pluginTypes = {
     ditherShortcodes (eleventyConfig, globalOptions) {
-        eleventyConfig.addPairedShortcode('dither', async (content, src, alt, options) => {
+        eleventyConfig.addPairedNunjucksAsyncShortcode('dither', async (content, src, alt, options) => {
             const htmlString = await processImageFromShortcode(content, src, alt, options, globalOptions)
             return htmlString
         })
