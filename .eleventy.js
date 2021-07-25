@@ -23,8 +23,8 @@ const defaultOptions = {
 
 const pluginTypes = {
     ditherShortcodes (eleventyConfig, globalOptions) {
-        eleventyConfig.addPairedShortcode('dither', (content, src, alt, options) => {
-            const htmlString = processImageFromShortcode(content, src, alt, options, globalOptions)
+        eleventyConfig.addPairedShortcode('dither', async (content, src, alt, options) => {
+            const htmlString = await processImageFromShortcode(content, src, alt, options, globalOptions)
             return htmlString
         })
     }
@@ -48,9 +48,9 @@ const pluginTypes = {
 //     }
 // }
 
-const processImageFromShortcode = (content, src, alt, options, globalOptions) => {
+const processImageFromShortcode = async (content, src, alt, options, globalOptions) => {
     const ditherImageObject = shortcodeToDitherObject(src, alt, content, options)
-    return processImage(ditherImageObject, globalOptions)
+    return await processImage(ditherImageObject, globalOptions)
 }
 
 const shortcodeToDitherObject = (src, alt, caption, options) => {
@@ -118,7 +118,7 @@ const getImageOptions = (globalOptions, imageSpecificOptions) => {
 
 
 
-const processImage = (ditherImageObject, globalOptions) => {
+const processImage = async (ditherImageObject, globalOptions) => {
 
     const options = getImageOptions(globalOptions, ditherImageObject)
 
@@ -141,7 +141,7 @@ const processImage = (ditherImageObject, globalOptions) => {
     }).flat()
 
     // This function gets the images, resizes them, dithres them, and then saves them in the correct formats 
-    getImage(ditherImageObject.src, options).then(async (imgBuffer) => {
+    await getImage(ditherImageObject.src, options).then(async (imgBuffer) => {
         return await Promise.all(options.sizes.map(size => {
             return resizeImage(imgBuffer, size)
         })).then(async (resizedImages) => {
