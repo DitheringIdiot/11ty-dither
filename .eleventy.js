@@ -23,8 +23,8 @@ const defaultOptions = {
 
 const pluginTypes = {
     ditherShortcodes (eleventyConfig, globalOptions) {
-        eleventyConfig.addShortcode('dither', (src, alt, caption, options) => {
-            const htmlString = processImageFromShortcode(src, alt, caption, options, globalOptions)
+        eleventyConfig.addPairedShortcode('dither', (content, src, alt, options) => {
+            const htmlString = processImageFromShortcode(content, src, alt, options, globalOptions)
             return htmlString
         })
     }
@@ -48,9 +48,8 @@ const pluginTypes = {
 //     }
 // }
 
-const processImageFromShortcode = (src, alt, caption, options, globalOptions) => {
-    const ditherImageObject = shortcodeToDitherObject(src, alt, caption, options)
-    console.log(globalOptions)
+const processImageFromShortcode = (content, src, alt, options, globalOptions) => {
+    const ditherImageObject = shortcodeToDitherObject(src, alt, content, options)
     return processImage(ditherImageObject, globalOptions)
 }
 
@@ -84,8 +83,6 @@ const shortcodeToDitherObject = (src, alt, caption, options) => {
 
 const getImageOptions = (globalOptions, imageSpecificOptions) => {
 
-    console.log(globalOptions)
-
     const presetString = typeof imageSpecificOptions.options === 'string' ? imageSpecificOptions.options : null
 
     const presets = globalOptions.presets || {}
@@ -115,8 +112,6 @@ const getImageOptions = (globalOptions, imageSpecificOptions) => {
         ...imageSpecificOptions,
         ditheringOptions: ditheringOptions
     }
-
-    console.log(options)
 
     return options
 }
